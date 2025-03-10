@@ -18,7 +18,6 @@ namespace State
         public IEnumerator Enter()
         {
             Debug.Log("Bootstrap: Initializing services....");
-            Debug.Log(_diContainer != null ? "DiContainer finished" : "DiContainer = null");
 
             var imageServiceInstance = _diContainer.InstantiateComponentOnNewGameObject<ImageService>("ImageService");
             _diContainer.Bind<ImageService>().FromInstance(imageServiceInstance).AsSingle();

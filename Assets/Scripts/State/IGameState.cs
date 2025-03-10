@@ -1,4 +1,5 @@
 using System.Collections;
+using Cysharp.Threading.Tasks;
 
 namespace State
 {
@@ -6,5 +7,6 @@ namespace State
     {
         IEnumerator Enter();
         void Exit();
-    }
+    } 
+
 }

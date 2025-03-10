@@ -1,81 +1,99 @@
-using System.Collections;
 using System.Collections.Generic;
-using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Networking;
+using Cysharp.Threading.Tasks;
+using Newtonsoft.Json;
 
-namespace State
+public class ImageService : MonoBehaviour
 {
-    public class ImageService : MonoBehaviour
+    [SerializeField] private string JsonUrl =
+        "https://drive.usercontent.google.com/download?id=1-V6cv78S8k4HiT0H9TAhBiJsIizViU1j&export=download&authuser=0&confirm=t&uuid=54ccc47f-f18e-41a0-9254-6b81ac18f295&at=AEz70l4br0QeNn_tgFPXMK8oNZk6:1741621781355";
+
+    public Dictionary<string, Sprite> LoadedSprites { get; private set; }
+
+    public async UniTask LoadImagesAsync()
     {
-        private const string JsonUrl =
-            "https://drive.usercontent.google.com/download?id=1IgsnzGt2GzwFbwHaywdXseffpsmfl1Yp&export=download&authuser=0&confirm=t&uuid=64354712-6a51-4345-93b4-3c8ed91c910f&at=AEz70l4guQtHyoaiiH68B_DiDwys:1740744146984";
+        string json = await LoadJsonAsync();
+        if (string.IsNullOrEmpty(json)) return;
 
-        public Dictionary<string, Sprite> LoadedSprites { get; private set; }
-
-        public IEnumerator LoadImages()
+        ImageData imageData = JsonConvert.DeserializeObject<ImageData>(json);
+        if (imageData?.images == null || imageData.images.Count == 0)
         {
-            LoadedSprites = new Dictionary<string, Sprite>();
+            Debug.LogError("No image data found");
+            return;
+        }
 
-            using (UnityWebRequest request = UnityWebRequest.Get(JsonUrl))
+        LoadedSprites = await LoadAllImagesAsync(imageData.images);
+    }
+
+    private async UniTask<string> LoadJsonAsync()
+    {
+        using (UnityWebRequest request = UnityWebRequest.Get(JsonUrl))
+        {
+            await request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
             {
-                yield return request.SendWebRequest();
+                Debug.LogError("Failed to load JSON: " + request.error);
+                return null;
+            }
 
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    Debug.LogError("Не вдалося завантажити JSON: " + request.error);
-                    yield break;
-                }
+            return request.downloadHandler.text;
+        }
+    }
 
-                ImageData imageData = JsonConvert.DeserializeObject<ImageData>(request.downloadHandler.text);
-                yield return StartCoroutine(DownloadImages(imageData.images));
+    private async UniTask<Dictionary<string, Sprite>> LoadAllImagesAsync(List<ImageInfo> imageInfos)
+    {
+        Dictionary<string, Sprite> loadedSprites = new Dictionary<string, Sprite>();
+        List<UniTask<(string name, Sprite sprite)>> tasks = new List<UniTask<(string, Sprite)>>();
+
+        foreach (ImageInfo info in imageInfos)
+        {
+            tasks.Add(LoadImageAsync(info));
+        }
+
+        var results = await UniTask.WhenAll(tasks);
+
+        foreach (var (name, sprite) in results)
+        {
+            if (!string.IsNullOrEmpty(name) && sprite != null && !loadedSprites.ContainsKey(name))
+            {
+                loadedSprites.Add(name, sprite);
             }
         }
 
-        private IEnumerator DownloadImages(List<ImageInfo> imageInfos)
+        return loadedSprites;
+    }
+
+    private async UniTask<(string, Sprite)> LoadImageAsync(ImageInfo info)
+    {
+        using (UnityWebRequest request = UnityWebRequestTexture.GetTexture(info.url))
         {
-            foreach (ImageInfo info in imageInfos)
+            await request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
             {
-                using (UnityWebRequest request = UnityWebRequestTexture.GetTexture(info.url))
-                {
-                    yield return request.SendWebRequest();
-
-                    if (request.result != UnityWebRequest.Result.Success)
-                    {
-                        Debug.LogError($"Не вдалося завантажити зображення: {info.url}");
-                        continue;
-                    }
-
-                    Texture2D texture = ((DownloadHandlerTexture)request.downloadHandler).texture;
-                    Sprite sprite = Sprite.Create(
-                        texture,
-                        new Rect(0, 0, texture.width, texture.height),
-                        new Vector2(0.5f, 0.5f)
-                    );
-
-                    if (!LoadedSprites.ContainsKey(info.name))
-                    {
-                        LoadedSprites.Add(info.name, sprite);
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"Спрайт з ім'ям '{info.name}' вже існує!");
-                    }
-                }
+                Debug.LogError($"Failed to load image: {info.url}");
+                return (null, null);
             }
-        }
 
-        [System.Serializable]
-        private class ImageData
-        {
-            public List<ImageInfo> images;
+            Texture2D texture = DownloadHandlerTexture.GetContent(request);
+            Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
+                new Vector2(0.5f, 0.5f));
+            return (info.name, sprite);
         }
+    }
 
-        [System.Serializable]
-        private class ImageInfo
-        {
-            public string name;
-            public string url;
-        }
+    [System.Serializable]
+    private class ImageData
+    {
+        public List<ImageInfo> images;
+    }
+
+    [System.Serializable]
+    private class ImageInfo
+    {
+        public string name;
+        public string url;
     }
 }
